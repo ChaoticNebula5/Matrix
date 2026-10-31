@@ -1,0 +1,88 @@
+{
+  "warning": "TEST ONLY: zero config hash, fixed nonce, and public deterministic key seeds are fixtures, not deployable membership.",
+  "test_private_seed_rule": "32 repeated bytes: node_a=0x01, node_b=0x02, node_c=0x03, node_d=0x04. NEVER use these as real keys.",
+  "public_keys": {
+    "node_a": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+    "node_b": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+    "node_c": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+    "node_d": "ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c"
+  },
+  "workload_fixtures": [
+    {
+      "result": {
+        "schema_version": 1,
+        "samples": 100000,
+        "seed": 42,
+        "hits": 78706
+      },
+      "canonical_result": "{\"hits\":78706,\"samples\":100000,\"schema_version\":1,\"seed\":42}",
+      "result_hash": "c21009c2fc835a81fc565c40e06891ec68d0edd833424605cd776fbf48db89c8"
+    },
+    {
+      "result": {
+        "schema_version": 1,
+        "samples": 100000,
+        "seed": 0,
+        "hits": 78528
+      },
+      "canonical_result": "{\"hits\":78528,\"samples\":100000,\"schema_version\":1,\"seed\":0}",
+      "result_hash": "481eadfecb25551a88ea440453727784dc1cd27a1b2f8ada406a32a063b5bdb9"
+    }
+  ],
+  "canonical_job_spec": "{\"config_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"nonce\":\"00000000000000000000000000000000\",\"parameters\":{\"samples\":100000,\"seed\":42},\"protocol_version\":1,\"requester_id\":\"node_a\",\"template_id\":\"monte-carlo-v1\"}",
+  "job_id": "2df070c4551285354d9e01c236e1fef18e1c9cc6c72e4a46f539b62ee054692c",
+  "certified_result": {
+    "signed_job": {
+      "payload": {
+        "domain": "matrix.job.v1",
+        "job_id": "2df070c4551285354d9e01c236e1fef18e1c9cc6c72e4a46f539b62ee054692c",
+        "spec": {
+          "protocol_version": 1,
+          "config_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "requester_id": "node_a",
+          "nonce": "00000000000000000000000000000000",
+          "template_id": "monte-carlo-v1",
+          "parameters": {
+            "samples": 100000,
+            "seed": 42
+          }
+        }
+      },
+      "signature": "038733a267cb6dfde8f22db07f8ca6b46e7e9ab7a1af8d5e393661ecfb682466995eefa25414f933c701a7dc6418145db6bcb6ed7b0ed854712a93fc80d6f902"
+    },
+    "result": {
+      "schema_version": 1,
+      "samples": 100000,
+      "seed": 42,
+      "hits": 78706
+    },
+    "certificate": {
+      "protocol_version": 1,
+      "config_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "job_id": "2df070c4551285354d9e01c236e1fef18e1c9cc6c72e4a46f539b62ee054692c",
+      "result_hash": "c21009c2fc835a81fc565c40e06891ec68d0edd833424605cd776fbf48db89c8",
+      "attestations": [
+        {
+          "payload": {
+            "domain": "matrix.execution.v1",
+            "config_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "job_id": "2df070c4551285354d9e01c236e1fef18e1c9cc6c72e4a46f539b62ee054692c",
+            "result_hash": "c21009c2fc835a81fc565c40e06891ec68d0edd833424605cd776fbf48db89c8",
+            "signer_id": "node_b"
+          },
+          "signature": "4bc5017e82286ff8957117d79efdf1557e0aaed63aca26d415700aee40fe48c64cfc1d28b5651249df92de46ad8e19f58da7ef53e6c6a109d8d768b330a56b0f"
+        },
+        {
+          "payload": {
+            "domain": "matrix.execution.v1",
+            "config_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "job_id": "2df070c4551285354d9e01c236e1fef18e1c9cc6c72e4a46f539b62ee054692c",
+            "result_hash": "c21009c2fc835a81fc565c40e06891ec68d0edd833424605cd776fbf48db89c8",
+            "signer_id": "node_c"
+          },
+          "signature": "d0265de2419e4e2842fc4749dc86bfdb47fa78c963ec4c5c47dc37a7b9bf268984ef8de19d1987438f8b522d55bc3b0fb69fe4b95539141827d30659deb7dd0e"
+        }
+      ]
+    }
+  }
+}

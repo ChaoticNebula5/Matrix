@@ -1,10 +1,13 @@
 # RFC 001 — Matrix: a four-peer Byzantine-tolerant compute demo
 
 **Status:** Proposed implementation contract  
+**Revision:** 1.1 — work-definition, task scope, and file-transfer clarification  
 **Date:** 31 October 2026  
 **Delivery budget:** 12 hours  
 **Scope:** Four fixed, team-operated Linux peers connected through tinc  
 **Companion:** `Matrix_API_Contract.zip` contains `main.tsp`, its build configuration, and the generated OpenAPI contract.
+
+Revision 1.1 adds the current work-definition example, supported task classes, and a bounded file-transfer extension. The mandatory parameter-only protocol remains version 1. File-based jobs are a separately identified optional extension; the existing seven-operation API contract does not yet enable that extension.
 
 This RFC supersedes the architecture and guarantees of the 12 October Campus Compute Exchange design for this demo. It specifies intended behavior, not an already implemented or measured system. MUST, SHOULD, and MAY are requirements, recommendations, and optional behavior respectively. Numerical defaults below are engineering choices, not measured performance claims.
 
@@ -113,6 +116,23 @@ Correctness means execution of the specified program on specified inputs. It doe
 - No confidential workloads or open Internet API deployment.
 - Architectural support for independent jobs, but no claim of linear useful-compute scaling as the global fault budget grows.
 
+### 2.5 Tasks this architecture can execute
+
+The execution unit is an independent batch job whose input and approved program determine reproducible output. The container is the execution boundary; it is not a distributed filesystem or a mechanism for automatically parallelizing programs.
+
+| Task | Suitability | Requirement / release status |
+| --- | --- | --- |
+| Seeded integer Monte Carlo simulation | Excellent | Mandatory `monte-carlo-v1`; exact algorithm in section 5.4 |
+| Integer matrix multiplication | Excellent | Optional first file-based template; exact integer arithmetic and canonical output |
+| Sorting, filtering, or aggregating a dataset | Good | Approved template, deterministic ordering/encoding, immutable input |
+| Graph algorithms | Good | Deterministic tie-breaking and approved input schema |
+| Image transformations | Conditional | Pinned implementation and reproducible output bytes |
+| GPU model training | Difficult | Heterogeneous GPU/runtime reproducibility is not provided by this release |
+| Arbitrary user Docker applications | Unsupported | No established approval, determinism, or result contract |
+| Interactive services or synchronized multi-machine training | Unsupported | Different scheduling, networking, and state-coordination model |
+
+Replicating a job on three workers verifies that job; it does not divide its computation. A dataset split into ten chunks requires ten separately identified and certified jobs. Combining chunk results is a separate deterministic operation. There is no automatic decomposition, shared RAM, GPU pooling, or cross-worker container state.
+
 ## 3. High-level design
 
 ### 3.1 Deployment
@@ -205,6 +225,24 @@ Ed25519 verification always uses the public key from the pinned configuration fo
 ### 5.2 Job and result identities
 
 `JobSpec` contains protocol version, config hash, requester ID, a 16-byte random nonce encoded as 32 lowercase hex characters, template ID, and parameters. `job_id = SHA256(C(JobSpec))`. The signed `JobRequest` contains its domain, `job_id`, and `spec`; the spec's requester is the signing identity. A human-readable label MAY exist in local CLI state but is not a signed protocol field.
+
+The current work definition looks like this before hashing and signing (angle-bracket strings are explanatory placeholders, not valid wire values):
+
+```json
+{
+  "protocol_version": 1,
+  "config_hash": "<64 lowercase hexadecimal characters>",
+  "requester_id": "node_a",
+  "nonce": "<32 lowercase hexadecimal characters>",
+  "template_id": "monte-carlo-v1",
+  "parameters": {
+    "samples": 1000000,
+    "seed": 42
+  }
+}
+```
+
+The approved template selects the executable. The parameters select one execution. The trusted catalogue supplies the pinned Docker image, algorithm, resource limits, and output schema. Submitters cannot replace the command, mount a host path, select a different image, or weaken validation. For Monte Carlo, sample count and seed are the complete input: no input file is transferred.
 
 The canonical result is `{schema_version: 1, samples: N, seed: S, hits: H}`. `result_hash = SHA256(C(result))`. An execution payload binds its domain, config hash, job ID, result hash, and signer ID. A result certificate is exactly two matching valid signed execution attestations sorted by signer ID. More evidence MAY be retained locally; any two distinct matching signers suffice. Different valid signer pairs for the same result are equivalent evidence, not conflicting decisions.
 
@@ -315,6 +353,120 @@ Local execution states: `none`, `queued`, `running`, `succeeded_local`, `aborted
 
 There is no global cancel endpoint. A requester may stop waiting or stop its own local execution; another partition can still complete the pure job. A paused peer remains a roster member and cannot be silently removed from threshold calculations.
 
+### 5.10 File transfer and Docker mounts — optional bounded extension
+
+**Two distinct mechanisms are involved:** machine-to-machine transfer uses the host agent's HTTP API over tinc; host-to-container access uses local Docker bind mounts. A Docker named volume or bind mount on one host does not automatically share files with another host. tinc transports packets and does not synchronize directories.
+
+This section specifies a small extension for an approved file-based template. It is not necessary for the mandatory Monte Carlo run and is not implemented by the current TypeSpec contract. If time is insufficient, retain the parameter-only demo and identify this extension as unimplemented. Do not spend the delivery window on shared filesystems, NFS, chunk swarms, object-storage infrastructure, resumable uploads, or peer Docker-image distribution.
+
+#### 5.10.1 File-based work definition
+
+A future coordinated protocol/profile revision adds an input descriptor to the immutable signed job. Illustrative additional field:
+
+```json
+{
+  "inputs": [
+    {
+      "name": "matrices.json",
+      "sha256": "<SHA-256 of the exact input bytes>",
+      "size_bytes": 2048,
+      "source_peer": "node_a"
+    }
+  ]
+}
+```
+
+`name` is a template-approved logical filename; `sha256` identifies the required bytes; `size_bytes` bounds the transfer; `source_peer` identifies the configured peer to try first. The input descriptors are part of the signed job specification and its job hash. Local staging paths are generated by the receiving agent and are not supplied by the requester. Do not accept arbitrary URLs, shell commands, absolute paths, `..`, symlinks, archives, or directory uploads.
+
+For the first extension, support exactly one file, a maximum of 5 MiB (5,242,880 bytes), and an approved `integer-matmul-v1` template. Require a new shared catalogue/configuration and revised wire schema before enabling it. Current version-one peers must reject the extra field rather than ignoring it. The source peer is a preferred location; an identical hash-verified copy may also be fetched from another configured holder without changing the computation input.
+
+Illustrative TypeSpec for the added descriptor (not part of the compiled core contract):
+
+```typespec
+model FileInput {
+  name: "matrices.json";
+  sha256: HashHex;
+  @minValue(1)
+  @maxValue(5242880)
+  size_bytes: uint32;
+  source_peer: PeerId;
+}
+```
+
+The approved matrix template would define the input JSON shape, matrix dimensions and value bounds, exact integer arithmetic, resource ceilings, and canonical result encoding. A filename plus Docker image alone is not a complete execution contract. Finalizing that template is an enablement gate, not an implicit promise that arbitrary matrix inputs work.
+
+#### 5.10.2 Complete transfer sequence
+
+1. On requester A, the CLI copies the approved input into agent-managed storage, computes its byte count and SHA-256, and creates the signed job referencing that identity. The input file remains available independently of the original user path.
+2. A sends the small signed job to execution peers B, C, and D. The manifest references the file; it does not embed large base64 data.
+3. Each worker checks its local cache. On a miss, the host agent downloads the file from a configured source through the proposed `GET /v1/artifacts/{sha256}` endpoint over tinc.
+4. The receiving agent streams into a temporary file, aborts on excess size, and verifies exact length and SHA-256 before accepting the bytes. Incorrect or incomplete downloads never reach execution. A matching hash establishes byte identity, not that the input was scientifically appropriate; the approved template also validates its structure.
+5. The agent stages the verified bytes into a private per-job input directory. Start the Docker job only after all required input checks pass.
+6. The container reads `/input/matrices.json` and writes its approved output into `/output/result.json`. The container keeps networking disabled; the supervisor performs all transfers.
+7. The supervisor reads the bounded output, validates it, canonicalizes it, and publishes a signed execution result. For this extension, keep the result small enough to use the existing JSON announcement/certificate flow; revise the result schema for the template before enabling it.
+8. The requester retrieves the output and certificate through peer APIs and verifies the two independent execution signatures. Durable input/result availability still requires copies at multiple peers.
+
+If the only input holder disappears before other peers have downloaded it, the job may stall even though its manifest survived. A manifest-storage acknowledgment does not prove storage of a referenced file. A file-enabled profile must replicate the input to at least two admitted holders before claiming durable submission of a runnable job, and extend the storage acknowledgment's meaning to cover the manifest's referenced input. Keep hashes immutable when changing holders.
+
+#### 5.10.3 Filesystem layout and mount boundary
+
+Example on worker B:
+
+| Host-managed location | Container location | Access |
+| --- | --- | --- |
+| `/matrix/jobs/<job_id>/input` | `/input` | Read-only bind mount |
+| `/matrix/jobs/<job_id>/output` | `/output` | Writable bind mount |
+
+These are illustrative paths, not files supplied with this RFC. The agent creates the directories locally and makes the output directory writable by the container's non-root user. It exposes only that job's inputs and output directory, not the entire cache or all jobs. Input and output use separate mounts, preventing the container from altering the input through the output path.
+
+Workers C and D prepare their own local copies and mounts. The same path string on different hosts does not denote shared storage. Each job gets its own output directory, and simultaneous jobs must not overwrite each other. Docker image contents supply program code; the input mount supplies data; the output mount persists generated results onto that worker's host.
+
+The agent, rather than the container, owns downloading, caching, hash checking, peer credentials, and result publishing. Neither tinc keys nor application signing keys are mounted into a workload. Docker's local mount mechanism does not perform any network transfer.
+
+#### 5.10.4 Minimal artifact API and admission rules
+
+Proposed additional route, not present in the seven-operation core API:
+
+```http
+GET /v1/artifacts/{sha256}
+```
+
+It serves raw `application/octet-stream` bytes from an agent-controlled hash-to-file lookup. Validate the hash format, require that the artifact belongs to an admitted job, and never join an untrusted filename onto an arbitrary host path. The recipient obtains expected size and hash from the signed job, not from HTTP headers alone. File paths and source addresses cannot override that identity. The template controls the final filename inside `/input`.
+
+Use one whole-file HTTP download, bounded streaming, and an atomic verified-cache commit. Reuse a verified cached file when available. Only configured peers are source candidates; do not follow redirects to arbitrary locations. Keep the endpoint bound to the VPN interface and within the same public/synthetic-data deployment scope as the core API. A generic remote upload API is unnecessary: the requester stages its own local file through the CLI and peers pull it.
+
+#### 5.10.5 Output files and future larger results
+
+For a small JSON result, canonicalize and sign the JSON as in the core protocol. If a later template produces a larger file, its signed result must identify every expected output by logical name, size, and SHA-256, for example:
+
+```json
+{
+  "outputs": [
+    {
+      "name": "result.json",
+      "sha256": "<SHA-256 of the output file>",
+      "size_bytes": 4096
+    }
+  ]
+}
+```
+
+Two independent executors must sign the same canonical output description. The receiver then downloads each file and verifies its bytes against the certified description. Reject unexpected files, symlinks, missing outputs, and excess size. Do not hash an archive with nondeterministic timestamps and assume it is reproducible.
+
+A certificate authenticates which output bytes are correct, not whether those bytes are currently available. Store outputs and the certificate on multiple peers. Retain the existing small-JSON path for the 12-hour implementation; larger output transfer is deferred.
+
+#### 5.10.6 Additional acceptance checks before enabling files
+
+- Transfer a real bounded file from A's agent to a worker on another physical machine through tinc.
+- Change or truncate the served input: the worker rejects it before container start.
+- Mount the verified input read-only: the workload can read it but cannot overwrite it.
+- Write a result inside `/output`: the supervisor observes it on that worker's local host.
+- Run equivalent jobs on separate workers: their output hashes match and reach the two-signer threshold.
+- Reject path traversal, unauthorized/unreferenced hashes, oversized files, and unexpected output paths.
+- Stop an input holder after replication: a surviving reachable holder can serve the same hash.
+
+This extension adds one download endpoint and one approved template; it does not introduce shared network volumes or change the result-correctness threshold.
+
 ## 6. TypeSpec and HTTP contract
 
 The companion `main.tsp` is the wire-model/API source. Its emitted OpenAPI is a handoff aid for implementing Pydantic models and checking the FastAPI schema. Node.js and TypeSpec are development tools only; neither is required on compute peers. Cross-field invariants, signature semantics, exact two-signer rules, and strict unknown-property rejection are normative here even when they cannot be fully expressed by an OpenAPI schema.
@@ -335,7 +487,7 @@ All bodies are JSON; peers send no unsigned replacement keys. Every signed wrapp
 
 Path IDs must equal payload IDs. Execute and result/certificate endpoints require an already validated stored job; otherwise return 404. The signed job inside a certified package must equal the stored signed job. It cannot replace that job. Execute requests cannot authorize a new program. Result/certificate senders may relay evidence, but all embedded signers are verified. Posting an identical object is safe. Concurrent imports are serialized locally. A fresh nonce creates a different job; recovery/retry preserves the original ID and signed bytes.
 
-No separate binary-transfer API is required: bounded result JSON travels in announcements and certified packages. Logs remain local for this release. This keeps the actual MVP implementable while retaining genuine peer-to-peer result transfer.
+No separate binary-transfer API is required for the mandatory parameter-only profile: bounded result JSON travels in announcements and certified packages. The optional file-based extension in section 5.10 adds a download route and revised input/result models; it must be implemented and reflected in the API contract before it is enabled. Logs remain local for this release.
 
 Limits: signed-job body 16 KiB; result-announcement body 4 KiB; certified-package body 8 KiB; per-job snapshot 64 KiB; HTTP request absolute cap 16 KiB. A result's canonical JSON is at most 1 KiB. Index and snapshot sizes are bounded independently. Enforce bytes before JSON decoding.
 
@@ -438,6 +590,7 @@ The protocol choices are fixed by this RFC. The team may proceed once those conc
 - [tinc configuration](https://www.tinc-vpn.org/documentation/Main-configuration-variables.html): router mode, ConnectTo, and StrictSubnets.
 - [tinc release history](https://www.tinc-vpn.org/news/) and [security notes](https://www.tinc-vpn.org/security/): version/security tradeoff behind the deployment scope.
 - [Docker resource constraints](https://docs.docker.com/engine/containers/resource_constraints/) and [security](https://docs.docker.com/engine/security/): execution controls inherited from the earlier design.
+- [Docker bind mounts](https://docs.docker.com/engine/storage/bind-mounts/): local host-to-container access; distinct from peer-to-peer transfer.
 - [PyTorch reproducibility](https://github.com/pytorch/pytorch/blob/main/docs/source/notes/randomness.md): motivation for excluding heterogeneous GPU training from exact result matching.
 - [TypeSpec HTTP operations](https://typespec.io/docs/libraries/http/operations/) and [installation](https://typespec.io/docs/): API contract format and build workflow.
 
